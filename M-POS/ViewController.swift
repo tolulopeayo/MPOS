@@ -7,8 +7,9 @@
 //
 
 import UIKit
+import MessageUI
 
-class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDelegate, UITextFieldDelegate {
+class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDelegate, UITextFieldDelegate, MFMailComposeViewControllerDelegate{
     @IBOutlet weak var SelectCurrencyBtn: UIButton!
     @IBOutlet weak var pickerView: UIPickerView!
     @IBOutlet weak var phoneNumber: UITextField!
@@ -19,6 +20,7 @@ class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDele
     
     let currencies = ["NGN", "KES", "GHS", "ZAR", "USD", "GBP", "EUR"]
     var alert = UIAlertController()
+    var passedAuth: String?
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -48,7 +50,13 @@ class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDele
             
             self.alert = UIAlertController(title: "Confirm Payment", message: "Request payment of \(currencyTxt.text!) \(SelectCurrencyBtn.currentTitle!) from \(phoneNumber.text!) ?" , preferredStyle: .alert)
             self.alert.addAction(UIAlertAction(title: "Yes", style: .default, handler: {action in
-                self.alert.dismiss(animated: true, completion: nil)
+
+                let popOverVC = UIStoryboard(name: "Main", bundle: nil).instantiateViewController(withIdentifier: "popUpId") as! PopUpViewController
+                popOverVC.phoneNumber = self.phoneNumber.text!
+                self.addChildViewController(popOverVC)
+                popOverVC.view.frame = self.view.frame
+                self.view.addSubview(popOverVC.view)
+                popOverVC.didMove(toParentViewController: self)
             }))
             self.alert.addAction(UIAlertAction(title: "No", style: .default, handler: {action in
                 self.alert.dismiss(animated: true, completion: nil)
@@ -64,7 +72,6 @@ class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDele
         }
     }
     
-    //
     // HHANDLES THE PICKERVIEW CURRENCY BUTTON
     @IBAction func currencyBtn(_ sender: Any) {
         if pickerView.isHidden {
@@ -144,65 +151,87 @@ class ViewController: UIViewController, UIPickerViewDataSource, UIPickerViewDele
         
     }
     
-   /* @IBOutlet weak var paymentLinkTxt: UITextField!
-    @IBAction func testPaymentIinkBtn(_ sender: Any) {
+ 
+    
+ // Hadnle sending to email
+    
+    func configureMailController() -> MFMailComposeViewController {
+        let mailComposerVC = MFMailComposeViewController()
+        mailComposerVC.mailComposeDelegate = self
+        
+        mailComposerVC.setToRecipients([emailTxt.text!])
+        mailComposerVC.setSubject("Payment Request")
+        mailComposerVC.setMessageBody(paymentDescTxt.text!, isHTML: false)
+        return mailComposerVC
+        
+    }
+    
+    func showMailError() {
+        let sendMailErrorAlert = UIAlertController(title: "could not send mail", message: "your device could not send mail", preferredStyle: .alert)
+        let dismiss = UIAlertAction(title: "OK", style: .default, handler: nil)
+        sendMailErrorAlert.addAction(dismiss)
+        self.present(sendMailErrorAlert, animated: true, completion: nil)
+    }
+    
+    
+    func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+        controller.dismiss(animated: true, completion: nil)
+    }
+    
+    
+    
+    
+    func createPaymentLink() {
         let headers = [
-            "Content-Type": "application/json",
             "v3-xapp-id": "1",
-            "Cache-Control": "no-cache",
-            //"Postman-Token": "cd6ccbba-e8c2-4a3a-85bd-fac0f22a9622"
-            
+            "Content-Type": "application/json",
+            "flw-auth-token": "\(passedAuth!)",
         ]
         let parameters = [
-            "identifier": "\(loginEmailTxt.text!)",
-            "password": "\(loginPasswordTxt.text!)"
+            "slug": "\(paymentDescTxt.text!)",
+            "name": "\(paymentDescTxt.text!)",
+            "meta": "{\"amount\":\(currencyTxt.text!),\"currency\":\"\(SelectCurrencyBtn.titleLabel!.text!)\"}",
+            "type": "Single"
             ] as [String : Any]
         
-        do {
-            
-            guard let postData = try JSONSerialization.data(withJSONObject: parameters, options: []) as?  AnyObject else {return}
-            
-            let request = NSMutableURLRequest(url: NSURL(string: "https://api.ravepay.co/login")! as URL,
-                                              cachePolicy: .useProtocolCachePolicy,
-                                              timeoutInterval: 10.0)
-            request.httpMethod = "POST"
-            request.allHTTPHeaderFields = headers
-            request.httpBody = postData as? Data
-            
-            let session = URLSession.shared
-            let dataTask = session.dataTask(with: request as URLRequest, completionHandler: { (data, response, error) -> Void in
-                if (error != nil) {
-                    print(error!)
-                } else {
-                    let httpResponse = response as? HTTPURLResponse
-                    print(httpResponse!.statusCode)
-                    if (httpResponse!.statusCode == 200) {
-                        OperationQueue.main.addOperation {
-                            (self.performSegue(withIdentifier: "showHome", sender: self))
-                        }
-                    }
-                    else{
-                        OperationQueue.main.addOperation {
-                            self.alert = UIAlertController(title: "Failed Login", message: "Invalid Email or Password" , preferredStyle: .alert)
-                            self.alert.addAction(UIAlertAction(title: "okay", style: .default, handler: {action in
-                                self.alert.dismiss(animated: true, completion: nil)
-                            }))
-                            self.present(self.alert, animated: true, completion: nil)
-                        }
-                        
-                    }
-                    
-                    
-                }
-            })
-            
-            dataTask.resume()
+        let request = NSMutableURLRequest(url: NSURL(string: "https://api.ravepay.co/v2/paymentpages/create")! as URL,
+                                          cachePolicy: .useProtocolCachePolicy,
+                                          timeoutInterval: 10.0)
+        
+        do
+        {
+            let postData = try JSONSerialization.data(withJSONObject: parameters, options: [])
+            request.httpBody = postData as Data
         }
-        catch {
-            print("json error: \(error.localizedDescription)")
+        catch
+        {
+            return
         }
         
-    }*/
+        
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+        
+        let session = URLSession.shared
+        let dataTask = session.dataTask(with: request as URLRequest, completionHandler: { (data, response, error) -> Void in
+            if (error != nil) {
+                print(error!)
+                
+            } else {
+                if let data = data {
+                    //let httpResponse = response as? HTTPURLResponse
+                    //print(httpResponse)
+                    let json = try?  JSONSerialization.jsonObject(with: data, options: JSONSerialization.ReadingOptions.allowFragments)
+                    print(json ?? "Couldn't read json")
+                    //print (self.passedAuth)
+                }
+            }
+        })
+        
+        dataTask.resume()
+        
+    }
+    
     
 
 }
